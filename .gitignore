@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# captured tensors and run outputs
+captures/
+results/
+*.pt
+*.npz
+
+# private working doc - not for publication
+DESIGN.md
+.DS_Store

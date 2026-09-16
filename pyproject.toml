@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "absorbkv"
+version = "0.1.0"
+description = "Token selection that stays inside MLA's absorbed latent"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "torch>=2.4",
+    "numpy>=1.24",
+]
+
+# Capture needs a real model; report needs plotting and rank statistics.
+# Neither is required to run the CPU identity tests.
+[project.optional-dependencies]
+# transformers>=5: the native deepseek_v2 class. The repo's own
+# trust_remote_code modeling file targets 4.33 and does not import on 5.x.
+capture = ["transformers>=5.0", "accelerate>=0.34", "datasets>=2.20"]
+report = ["scipy>=1.11", "matplotlib>=3.8"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
