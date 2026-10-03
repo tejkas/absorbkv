@@ -24,22 +24,21 @@ import pytest
 
 # Third Party
 import torch
-from transformers.cache_utils import DynamicCache
 from transformers.models.deepseek_v2.configuration_deepseek_v2 import DeepseekV2Config
 from transformers.models.deepseek_v2.modeling_deepseek_v2 import DeepseekV2Model
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaModel
 
-# First Party
 from absorbkv.capture import (
     ContextCapture,
-    GqaContextCapture,
     QueryCapture,
     capture_context,
     capture_document,
-    capture_gqa_context,
     capture_queries,
 )
+
+# First Party
+from absorbkv.data import group_paragraphs
 
 VOCAB = 100
 HIDDEN = 64
@@ -249,28 +248,60 @@ def test_capture_queries_rejects_an_oversized_tail(model, ids, positions):
 
 
 @pytest.fixture
-def document(model) -> tuple:
+def paragraph_ids() -> list[torch.Tensor]:
     torch.manual_seed(4)
-    chunks = [torch.randint(0, VOCAB, (1, width)) for width in (5, 7, 4)]
-    question = torch.randint(0, VOCAB, (1, 3))
-    return capture_document(model, chunks, question), chunks, question
+    return [torch.randint(0, VOCAB, (1, width)) for width in (5, 7, 4, 6)]
 
 
-def test_capture_document_assembles_both_passes(document):
-    capture, chunks, question = document
-    total = sum(chunk.shape[1] for chunk in chunks)
-    assert capture.chunked.latent.shape == (LAYERS, total, KV_LORA)
-    assert capture.truth.latent.shape == (LAYERS, total, KV_LORA)
-    assert capture.queries.query.shape == (
-        LAYERS,
-        question.shape[1],
-        HEADS,
-        QK_HEAD,
-    )
-    assert capture.chunk_starts.tolist() == [0, 5, 12]
+@pytest.fixture
+def chunkings(paragraph_ids) -> dict[int, list[torch.Tensor]]:
+    return {per: group_paragraphs(paragraph_ids, per) for per in (1, 2)}
 
 
-def test_first_chunk_has_no_deviation(document):
+@pytest.fixture
+def questions() -> dict[str, torch.Tensor]:
+    torch.manual_seed(5)
+    return {
+        "plain": torch.randint(0, VOCAB, (1, 3)),
+        "chat": torch.randint(0, VOCAB, (1, 4)),
+    }
+
+
+@pytest.fixture
+def document(model, chunkings, questions):
+    return capture_document(model, chunkings, questions)
+
+
+def test_capture_document_covers_every_chunking_and_framing(
+    document, chunkings, questions, paragraph_ids
+):
+    total = sum(ids.shape[1] for ids in paragraph_ids)
+    assert document.truth.latent.shape == (LAYERS, total, KV_LORA)
+    assert set(document.chunked) == set(chunkings)
+    assert set(document.queries) == set(questions)
+
+    for per_chunk, chunked in document.chunked.items():
+        assert chunked.capture.latent.shape == (LAYERS, total, KV_LORA)
+        assert len(chunked.chunk_starts) == len(chunkings[per_chunk])
+    assert document.chunked[1].chunk_starts.tolist() == [0, 5, 12, 16]
+    assert document.chunked[2].chunk_starts.tolist() == [0, 12]
+
+    for framing, question in questions.items():
+        assert document.queries[framing].query.shape == (
+            LAYERS,
+            question.shape[1],
+            HEADS,
+            QK_HEAD,
+        )
+
+
+def test_the_truth_pass_is_captured_once(document):
+    """Every chunking is differenced against the same truth tensor."""
+    assert document.truth.latent.shape == document.chunked[1].capture.latent.shape
+    assert document.truth.latent.shape == document.chunked[2].capture.latent.shape
+
+
+def test_first_chunk_has_no_deviation(document, chunkings):
     """Nothing precedes chunk 1 in either pass, so its deviation is noise.
 
     This is the end-to-end check that the position discipline works. A
@@ -278,71 +309,36 @@ def test_first_chunk_has_no_deviation(document):
     disagree about where the tokens are, and every later number is
     measuring a rotation instead of staleness.
     """
-    capture, chunks, _ = document
-    width = chunks[0].shape[1]
-    residual = relative_residual(
-        capture.chunked.latent[:, :width], capture.truth.latent[:, :width]
-    )
-    assert residual < 1e-5
-
-
-def test_later_chunks_do_deviate(document):
-    """The complement: without it, a broken capture returning zeros passes."""
-    capture, chunks, _ = document
-    width = chunks[0].shape[1]
-    residual = relative_residual(
-        capture.chunked.latent[:, width:], capture.truth.latent[:, width:]
-    )
-    assert residual > 1e-2
-
-
-def test_capture_document_rejects_no_chunks(model):
-    with pytest.raises(ValueError, match="at least one chunk"):
-        capture_document(model, [], torch.randint(0, VOCAB, (1, 3)))
-
-
-# --------------------------------------------------------------------------
-# capture_gqa_context -- the baseline path
-# --------------------------------------------------------------------------
-
-
-def test_capture_gqa_context_shapes(gqa_model, ids, positions):
-    capture = capture_gqa_context(gqa_model, ids, positions)
-    assert isinstance(capture, GqaContextCapture)
-    assert capture.keys.shape == (
-        LAYERS,
-        ids.shape[1],
-        GQA_KV_HEADS,
-        GQA_HEAD_DIM,
-    )
-    assert capture.position_ids.shape == (ids.shape[1],)
-
-
-def test_capture_gqa_context_is_token_major(gqa_model, ids, positions):
-    """The cache is head-major; every capture in this module is token-major."""
-    cache = DynamicCache()
-    with torch.inference_mode():
-        gqa_model(
-            input_ids=ids,
-            position_ids=positions,
-            past_key_values=cache,
-            use_cache=True,
+    for per_chunk, chunked in document.chunked.items():
+        width = chunkings[per_chunk][0].shape[1]
+        residual = relative_residual(
+            chunked.capture.latent[:, :width], document.truth.latent[:, :width]
         )
-    expected = cache.layers[0].keys[0].transpose(0, 1)
-
-    capture = capture_gqa_context(gqa_model, ids, positions)
-    assert relative_residual(capture.keys[0], expected.cpu()) == 0.0
+        assert residual < 1e-5, f"chunking {per_chunk}"
 
 
-def test_capture_gqa_context_rejects_an_mla_cache(model, ids, positions):
-    """The mirror of the guard in capture_context."""
-    with pytest.raises(ValueError, match="use capture_context"):
-        capture_gqa_context(model, ids, positions)
+def test_later_chunks_do_deviate(document, chunkings):
+    """The complement: without it, a broken capture returning zeros passes."""
+    for per_chunk, chunked in document.chunked.items():
+        width = chunkings[per_chunk][0].shape[1]
+        residual = relative_residual(
+            chunked.capture.latent[:, width:], document.truth.latent[:, width:]
+        )
+        assert residual > 1e-2, f"chunking {per_chunk}"
 
 
-def test_capture_queries_works_on_the_baseline_model(gqa_model, ids, positions):
-    """What parametrizing num_heads and head_dim bought."""
-    capture = capture_queries(
-        gqa_model, ids, positions, 3, GQA_HEADS, GQA_HEAD_DIM
-    )
-    assert capture.query.shape == (LAYERS, 3, GQA_HEADS, GQA_HEAD_DIM)
+def test_capture_document_rejects_chunkings_of_different_contexts(
+    model, chunkings, questions
+):
+    """A stale or mis-grouped chunking would otherwise be differenced
+    against a truth pass covering different tokens."""
+    chunkings[2] = chunkings[2][:-1]
+    with pytest.raises(ValueError, match="different context"):
+        capture_document(model, chunkings, questions)
+
+
+def test_capture_document_rejects_nothing_to_capture(model, chunkings, questions):
+    with pytest.raises(ValueError, match="at least one chunking"):
+        capture_document(model, {}, questions)
+    with pytest.raises(ValueError, match="at least one question framing"):
+        capture_document(model, chunkings, {})

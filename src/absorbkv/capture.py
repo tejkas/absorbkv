@@ -59,6 +59,18 @@ class ContextCapture:
     k_rope: torch.Tensor
     position_ids: torch.Tensor
 
+@dataclass
+class ChunkedPass:
+    """One chunking of the context, forwarded chunk by chunk.
+
+    Attributes:
+        capture: The assembled context KV, in document order.
+        chunk_starts: Index of each chunk's first token, shape
+            ``[num_chunks]``.
+    """
+
+    capture: ContextCapture
+    chunk_starts: torch.Tensor
 
 @dataclass(frozen=True)
 class QueryCapture:
@@ -81,19 +93,18 @@ class DocumentCapture:
     """Everything one document contributes to the measurement.
 
     Attributes:
-        chunked: Context KV from forwarding each chunk alone, assembled in
-            document order -- what a cache built chunk by chunk holds.
         truth: Context KV from one forward over the whole context.
-        queries: Queries for the question tokens, from the truth pass.
-        chunk_starts: Index of each chunk's first token, shape
-            ``[num_chunks]``. ``position_ids`` run contiguously across
-            chunks, so boundaries cannot be recovered from them.
+            Captured once and shared by every chunking, since it does not
+            depend on how the cache was fragmented.
+        chunked: One :class:`ChunkedPass` per chunking, keyed by how many
+            paragraphs went into a chunk.
+        queries: One :class:`QueryCapture` per prompt framing, keyed by
+            the framing's name.
     """
 
-    chunked: ContextCapture
     truth: ContextCapture
-    queries: QueryCapture
-    chunk_starts: torch.Tensor
+    chunked: dict[int, ChunkedPass]
+    queries: dict[str, QueryCapture]
 
 def capture_context(
     model: torch.nn.Module,
@@ -261,80 +272,111 @@ def capture_queries(
 
 def capture_document(
         model: torch.nn.Module,
-        chunk_ids: list[torch.Tensor],
-        question_ids: torch.Tensor
+        chunkings: dict[int, list[torch.Tensor]],
+        questions: dict[str, torch.Tensor],
 ) -> DocumentCapture:
-    """Run both context passes and the query pass for one document.
+    """Capture one document under several chunkings and prompt framings.
 
-    Each chunk is forwarded alone but at its true positions, so the only
-    difference from the truth pass is what the tokens could attend to.
-    Chunk 1 is kept: nothing precedes it either way, so its deviation is
-    zero in exact arithmetic and measures the floating-point noise floor.
+    Every chunking covers the same context, so the truth pass and nothing
+    else is shared between them. Each chunk is forwarded alone but at its
+    true positions, leaving what it could attend to as the only
+    difference from the truth pass.
 
     Args:
         model: An MLA model in eval mode, on the capture device.
-        chunk_ids: Token ids per chunk, each ``[1, chunk_tokens]``, in
-            document order.
-        question_ids: Token ids of the question, ``[1, question_tokens]``.
+        chunkings: Grouped chunk ids, keyed by paragraphs per chunk. Each
+            value is a list of ``[1, chunk_tokens]`` tensors that tile the
+            context in order.
+        questions: Question ids, keyed by framing name, each
+            ``[1, question_tokens]``.
 
     Returns:
         A :class:`DocumentCapture` with every tensor on CPU.
 
     Raises:
-        ValueError: If no chunks are given, or if the two passes disagree
-            on positions.
+        ValueError: If no chunkings or questions are given, if the
+            chunkings do not all cover the same context, or if the two
+            passes disagree on positions.
     """
-    if not chunk_ids:
-        raise ValueError("need at least one chunk")
+    if not chunkings:
+        raise ValueError("need at least one chunking")
+    if not questions:
+        raise ValueError("need at least one question framing")
 
     device = next(model.parameters()).device
-    chunks = [ids.to(device) for ids in chunk_ids]
-    context_ids = torch.cat(chunks, dim=1)
+    contexts = {
+        per_chunk: torch.cat(chunks, dim=1).to(device)
+        for per_chunk, chunks in chunkings.items()
+    }
+    context_ids = next(iter(contexts.values()))
+
+    # verify all chunking paradigms (paragraphs per chunk) share the same tokens
+    for per_chunk, ids in contexts.items():
+        if not torch.equal(ids, context_ids):
+            raise ValueError(
+                f"chunking {per_chunk} covers a different context than "
+                f"the others; every chunking must tile the same tokens"
+            )
+        
     positions = torch.arange(context_ids.shape[1], device=device).unsqueeze(0)
-
-    per_chunk = []
-    chunk_starts = []
-    start = 0
-    for chunk in chunks:
-        width = chunk.shape[1]
-        chunk_starts.append(start)
-        per_chunk.append(
-            capture_context(model, chunk, positions[:, start : start + width])
-        )
-        start += width
-
-    chunked = ContextCapture(
-        latent=torch.cat([c.latent for c in per_chunk], dim=1),
-        k_rope=torch.cat([c.k_rope for c in per_chunk], dim=1),
-        position_ids=torch.cat([c.position_ids for c in per_chunk]),
-    )
     truth = capture_context(model, context_ids, positions)
 
-    if not torch.equal(chunked.position_ids, truth.position_ids):
-        raise ValueError(
-            "the two passes disagree on positions, so their difference "
-            "would contain a rotation rather than staleness"
+    chunked = {}
+    for per_chunk, chunks in chunkings.items():
+        per_chunk_captures = []
+        chunk_starts = []
+        start = 0
+        for chunk in chunks:
+            width = chunk.shape[1] # number of tokens in this chunk
+            chunk_starts.append(start) # offsets per chunk
+            per_chunk_captures.append(
+                capture_context(
+                    model,
+                    chunk.to(device),
+                    positions[:, start : start + width],
+                )
+            )
+            start += width
+
+        # cumulative chunked context capture
+        assembled = ContextCapture(
+            latent=torch.cat([c.latent for c in per_chunk_captures], dim=1),
+            k_rope=torch.cat([c.k_rope for c in per_chunk_captures], dim=1),
+            position_ids=torch.cat(
+                [c.position_ids for c in per_chunk_captures]
+            ),
+        )
+        if not torch.equal(assembled.position_ids, truth.position_ids):
+            raise ValueError(
+                f"chunking {per_chunk} disagrees with the truth pass on "
+                f"positions, so their difference would contain a rotation "
+                f"rather than staleness"
+            )
+        chunked[per_chunk] = ChunkedPass(
+            capture=assembled,
+            chunk_starts=torch.tensor(chunk_starts),
         )
 
-    question = question_ids.to(device)
-    # the question is concatenated after the context
-    full_ids = torch.cat([context_ids, question], dim=1)
-    full_positions = torch.arange(full_ids.shape[1], device=device).unsqueeze(0)
-    queries = capture_queries(
-        model, 
-        full_ids, 
-        full_positions, 
-        question.shape[1],
-        model.config.num_attention_heads,
-        model.config.qk_nope_head_dim + model.config.qk_rope_head_dim
-    )
+    num_heads = model.config.num_attention_heads
+    head_dim = model.config.qk_nope_head_dim + model.config.qk_rope_head_dim
+    queries = {}
+    # for both templated and non-templated questions
+    for framing, question_ids in questions.items():
+        question = question_ids.to(device)
+        full_ids = torch.cat([context_ids, question], dim=1)
+        full_positions = torch.arange(
+            full_ids.shape[1], device=device
+        ).unsqueeze(0)
+        queries[framing] = capture_queries(
+            model,
+            full_ids,
+            full_positions,
+            question.shape[1],
+            num_heads,
+            head_dim,
+        )
 
-    return DocumentCapture(
-        chunked=chunked,
-        truth=truth,
-        queries=queries,
-        chunk_starts=torch.tensor(chunk_starts),
-    )
+    return DocumentCapture(truth=truth, chunked=chunked, queries=queries)
 
 def capture_gqa_context(
         model: torch.nn.Module,
