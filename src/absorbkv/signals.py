@@ -12,7 +12,9 @@ invariant to any rotation applied identically to both sides, so all inputs
 here are pre-RoPE and this module is free of positional concerns.
 """
 from dataclasses import dataclass
+
 import torch
+
 
 def extract_w_uk(
     kv_b_proj_weight: torch.Tensor,
@@ -225,8 +227,8 @@ def compute_latent_signals(
     weighted_rope = num_heads * rope_energy
 
     return LatentSignals(
-        exact=quadratic_form(delta_latent, gram_k) + weighted_rope,
-        kv=quadratic_form(delta_latent, gram_kv) + weighted_rope,
-        row=content_energy + rope_energy,
-        naive=content_energy,
+        exact=quadratic_form(delta_latent, gram_k) + weighted_rope, #S_exact
+        kv=quadratic_form(delta_latent, gram_kv) + weighted_rope, #S_kv
+        row=content_energy + rope_energy, #S_row
+        naive=content_energy, #S_naive
     )
