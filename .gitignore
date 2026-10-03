@@ -12,6 +12,8 @@ results/
 *.pt
 *.npz
 
-# private working doc - not for publication
+# private working docs - not for publication
 DESIGN.md
+CLAUDE.md
+LOG.md
 .DS_Store
