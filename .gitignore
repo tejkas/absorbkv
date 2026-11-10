@@ -8,7 +8,7 @@ venv/
 
 # captured tensors and run outputs
 captures/
-results/
+weights/
 *.pt
 *.npz
 
