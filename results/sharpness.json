@@ -1,0 +1,46 @@
+{
+ "matched_divisor": 8.71677049899175,
+ "by_variant": {
+  "model logits": {
+   "reference": 2.35686993598938
+  },
+  "theirs c=16": {
+   "natural": 0.9765112400054932,
+   "matched": 2.415703296661377
+  },
+  "latent_pooled c=16": {
+   "natural": 0.31014835834503174,
+   "matched": 0.8050981760025024
+  },
+  "latent_exact": {
+   "natural": 0.33325543999671936,
+   "matched": 0.865080714225769
+  },
+  "rope_page2": {
+   "natural": 2.115408182144165,
+   "matched": 1.9414604902267456
+  },
+  "rope_page1": {
+   "natural": 1.9657124280929565,
+   "matched": 1.8040741682052612
+  },
+  "theirs c=64": {
+   "natural": 1.021973729133606,
+   "matched": 2.3783068656921387
+  },
+  "latent_pooled c=64": {
+   "natural": 0.31014835834503174,
+   "matched": 0.8050981760025024
+  },
+  "theirs c=256": {
+   "natural": 1.0153754949569702,
+   "matched": 2.387247323989868
+  },
+  "latent_pooled c=256": {
+   "natural": 0.31014835834503174,
+   "matched": 0.8050981760025024
+  }
+ },
+ "documents": 20,
+ "layers": 27
+}

@@ -1,0 +1,8 @@
+{
+  "identity_residual_max": 1.0086752126881038e-06,
+  "noise_floor_first_chunk": 0.2741093337535858,
+  "stale_tokens": 4.181087970733643,
+  "separation": 15.253358626934924,
+  "layer_0_deviation": 7.450580596923828e-09,
+  "documents": 60
+}

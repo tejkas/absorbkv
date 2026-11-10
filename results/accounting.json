@@ -1,0 +1,83 @@
+{
+  "mla_c16": {
+    "estimating_in_t": 1.0638507646562267,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.5638507646562267,
+    "delivered_ratio": 10.231155274919853,
+    "requested_ratio": 16,
+    "kept_fraction": 0.6350589842718953,
+    "kept_fraction_to_meet_budget": 0.23222067865294116
+  },
+  "mla_c64": {
+    "estimating_in_t": 1.1197524680475555,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.6197524680475555,
+    "delivered_ratio": 39.512210206504825,
+    "requested_ratio": 64,
+    "kept_fraction": 0.4812847115860892,
+    "kept_fraction_to_meet_budget": 0.14572265026717518
+  },
+  "mla_c256": {
+    "estimating_in_t": 1.1072991433023853,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.6072991433023853,
+    "delivered_ratio": 159.27340039142797,
+    "requested_ratio": 256,
+    "kept_fraction": 0.5087266227928767,
+    "kept_fraction_to_meet_budget": 0.16115872532099318
+  },
+  "mla_truncate_rope_c16": {
+    "estimating_in_t": 1.0,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.5,
+    "delivered_ratio": 10.666666666666666,
+    "requested_ratio": 16,
+    "kept_fraction": 0.6350589842718953,
+    "kept_fraction_to_meet_budget": 0.3175294921359477
+  },
+  "mla_truncate_rope_c64": {
+    "estimating_in_t": 1.0,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.5,
+    "delivered_ratio": 42.666666666666664,
+    "requested_ratio": 64,
+    "kept_fraction": 0.4812847115860892,
+    "kept_fraction_to_meet_budget": 0.2406423557930446
+  },
+  "mla_truncate_rope_c256": {
+    "estimating_in_t": 1.0,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.5,
+    "delivered_ratio": 170.66666666666666,
+    "requested_ratio": 256,
+    "kept_fraction": 0.5087266227928767,
+    "kept_fraction_to_meet_budget": 0.25436331139643836
+  },
+  "gqa_mistral_c16": {
+    "estimating_in_t": 0.5,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.0,
+    "delivered_ratio": 16.0,
+    "requested_ratio": 16,
+    "kept_fraction": 0.6350589842718953,
+    "kept_fraction_to_meet_budget": 0.6350589842718953
+  },
+  "gqa_mistral_c64": {
+    "estimating_in_t": 0.5,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.0,
+    "delivered_ratio": 64.0,
+    "requested_ratio": 64,
+    "kept_fraction": 0.4812847115860892,
+    "kept_fraction_to_meet_budget": 0.4812847115860892
+  },
+  "gqa_mistral_c256": {
+    "estimating_in_t": 0.5,
+    "attending_in_t": 0.5,
+    "total_in_t": 1.0,
+    "delivered_ratio": 256.0,
+    "requested_ratio": 256,
+    "kept_fraction": 0.5087266227928767,
+    "kept_fraction_to_meet_budget": 0.5087266227928767
+  }
+}
