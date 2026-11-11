@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "absorbkv"
 version = "0.1.0"
-description = "Token selection that stays inside MLA's absorbed latent"
+description = "KV-cache staleness and token-selection signals computed in MLA's latent, without rebuilding per-head keys"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
