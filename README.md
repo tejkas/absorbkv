@@ -21,7 +21,7 @@ computed in that latent space and whether the token rankings they depend on
 survive. **CacheBlend** (cache reuse, ranks by key deviation) and **RocketKV**
 (decode-time token selection, ranks by an estimated attention score).
 
-The write-up is [`blog/mla-kv-signals.md`](blog/mla-kv-signals.md). Every
+The write-up is in https://tejkas.github.io/blog/mla-kv-signals/. Every
 number in it is in
 [`RESULTS.md`](RESULTS.md) with its provenance.
 
